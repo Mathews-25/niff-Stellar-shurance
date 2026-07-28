@@ -325,7 +325,7 @@ pub fn file_claim(
     let duration = storage::get_voting_duration_ledgers(env);
     let voting_deadline_ledger = now.checked_add(duration).ok_or(Error::Overflow)?;
 
-    let claim_id = storage::next_claim_id(env);
+    let claim_id = storage::next_claim_id(env)?;
     let mut status_history: Vec<ClaimStatusHistoryEntry> = Vec::new(env);
     push_status_transition(&mut status_history, ClaimStatus::Processing, now);
     storage::snapshot_claim_voters(env, claim_id);
@@ -480,6 +480,13 @@ pub fn vote_on_claim(
     let eligible = snapshot.iter().any(|v| v == *voter);
     if !eligible {
         return Err(Error::NotEligibleVoter);
+    }
+
+    // Issue #783: enforce voter cap — reject if already at max unique voters.
+    let cast_count = claim.approve_votes + claim.reject_votes;
+    let max_voters = storage::get_max_voters_per_claim(env);
+    if cast_count >= max_voters && storage::get_vote(env, claim_id, voter).is_none() {
+        return Err(Error::VoterCapReached);
     }
 
     let resolved_target = storage::resolve_vote_delegation_target(env, voter, now)?;
